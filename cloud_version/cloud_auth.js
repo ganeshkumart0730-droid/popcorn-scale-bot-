@@ -27,11 +27,18 @@ async function getCloudClient(clientId) {
     
     const store = new MongoStore({ mongoose: mongoose });
     
+    // 🧹 Clean up local session folder to avoid conflicts in cloud environments
+    const sessionPath = path.join(process.cwd(), '.wwebjs_auth');
+    if (fs.existsSync(sessionPath)) {
+        console.log(`🧹 [${clientId}] Cleaning up local session cache...`);
+        try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch (e) {}
+    }
+
     const client = new Client({
         authStrategy: new RemoteAuth({
-            clientId: clientId, // Unique ID for each bot's session
+            clientId: clientId, 
             store: store,
-            backupSyncIntervalMs: 300000 // Backup every 5 mins
+            backupSyncIntervalMs: 300000 
         }),
         puppeteer: {
             headless: true,
