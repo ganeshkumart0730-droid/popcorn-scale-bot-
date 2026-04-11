@@ -1,0 +1,331 @@
+{
+  "settings": {
+    "languages": [
+      "en"
+    ],
+    "forceNER": true,
+    "nlp": {
+      "log": false
+    },
+    "tag": "nlp",
+    "threshold": 0.5,
+    "autoLoad": true,
+    "autoSave": true,
+    "modelFileName": "model.nlp",
+    "executeActionsBeforeAnswers": false,
+    "calculateSentiment": true
+  },
+  "nluManager": {
+    "settings": {
+      "tag": "nlu-manager"
+    },
+    "locales": [
+      "en"
+    ],
+    "languageNames": {},
+    "domainManagers": {
+      "en": {
+        "settings": {
+          "locale": "en",
+          "trainByDomain": false,
+          "tag": "domain-manager-en",
+          "nluByDomain": {
+            "default": {
+              "className": "NeuralNlu",
+              "settings": {}
+            }
+          },
+          "useStemDict": true
+        },
+        "stemDict": {
+          "latest,movi": {
+            "intent": "movie.latest",
+            "domain": "default"
+          },
+          "film,upcom": {
+            "intent": "movie.latest",
+            "domain": "default"
+          },
+          "movi,new": {
+            "intent": "movie.latest",
+            "domain": "default"
+          },
+          "latest,releas": {
+            "intent": "movie.latest",
+            "domain": "default"
+          },
+          "movi,telugu": {
+            "intent": "movie.latest.telugu",
+            "domain": "default"
+          },
+          "trend": {
+            "intent": "movie.trending",
+            "domain": "default"
+          },
+          "is,popular,what": {
+            "intent": "movie.trending",
+            "domain": "default"
+          }
+        },
+        "intentDict": {
+          "movie.latest": "default",
+          "movie.latest.telugu": "default",
+          "movie.trending": "default"
+        },
+        "sentences": [
+          {
+            "domain": "default",
+            "utterance": "latest movies",
+            "intent": "movie.latest"
+          },
+          {
+            "domain": "default",
+            "utterance": "upcoming films",
+            "intent": "movie.latest"
+          },
+          {
+            "domain": "default",
+            "utterance": "new movies",
+            "intent": "movie.latest"
+          },
+          {
+            "domain": "default",
+            "utterance": "latest releases",
+            "intent": "movie.latest"
+          },
+          {
+            "domain": "default",
+            "utterance": "telugu movies",
+            "intent": "movie.latest.telugu"
+          },
+          {
+            "domain": "default",
+            "utterance": "trending",
+            "intent": "movie.trending"
+          },
+          {
+            "domain": "default",
+            "utterance": "what is popular",
+            "intent": "movie.trending"
+          }
+        ],
+        "domains": {
+          "master_domain": {
+            "settings": {
+              "locale": "en",
+              "tag": "nlu-en",
+              "keepStopwords": true,
+              "nonefeatureValue": 1,
+              "nonedeltaMultiplier": 1.2,
+              "spellCheck": false,
+              "spellCheckDistance": 1,
+              "filterZeros": true,
+              "log": true
+            },
+            "features": {
+              "latest": 1,
+              "movi": 1,
+              "upcom": 1,
+              "film": 1,
+              "new": 1,
+              "releas": 1,
+              "telugu": 1,
+              "trend": 1,
+              "what": 1,
+              "is": 1,
+              "popular": 1
+            },
+            "intents": {
+              "movie.latest": 1,
+              "movie.latest.telugu": 1,
+              "movie.trending": 1
+            },
+            "intentFeatures": {
+              "movie.latest": {
+                "latest": 1,
+                "movi": 1,
+                "upcom": 1,
+                "film": 1,
+                "new": 1,
+                "releas": 1
+              },
+              "movie.latest.telugu": {
+                "telugu": 1,
+                "movi": 1
+              },
+              "movie.trending": {
+                "trend": 1,
+                "what": 1,
+                "is": 1,
+                "popular": 1
+              }
+            },
+            "featuresToIntent": {
+              "latest": [
+                "movie.latest"
+              ],
+              "movi": [
+                "movie.latest",
+                "movie.latest.telugu"
+              ],
+              "upcom": [
+                "movie.latest"
+              ],
+              "film": [
+                "movie.latest"
+              ],
+              "new": [
+                "movie.latest"
+              ],
+              "releas": [
+                "movie.latest"
+              ],
+              "telugu": [
+                "movie.latest.telugu"
+              ],
+              "trend": [
+                "movie.trending"
+              ],
+              "what": [
+                "movie.trending"
+              ],
+              "is": [
+                "movie.trending"
+              ],
+              "popular": [
+                "movie.trending"
+              ]
+            },
+            "neuralNetwork": {
+              "settings": {
+                "locale": "en",
+                "tag": "nlu-en",
+                "keepStopwords": true,
+                "nonefeatureValue": 1,
+                "nonedeltaMultiplier": 1.2,
+                "spellCheck": false,
+                "spellCheckDistance": 1,
+                "filterZeros": true,
+                "log": true
+              },
+              "features": [
+                "latest",
+                "movi",
+                "upcom",
+                "film",
+                "new",
+                "releas",
+                "telugu",
+                "trend",
+                "what",
+                "is",
+                "popular"
+              ],
+              "intents": [
+                "movie.latest",
+                "movie.latest.telugu",
+                "movie.trending"
+              ],
+              "perceptrons": [
+                [
+                  7.064131736755371,
+                  3.4827675819396973,
+                  5.294064044952393,
+                  5.294064044952393,
+                  6.983641624450684,
+                  3.5540661811828613,
+                  -7.0151686668396,
+                  -3.6338069438934326,
+                  -1.3064632415771484,
+                  -1.3064632415771484,
+                  -1.3064632415771484,
+                  3.6806229242299473
+                ],
+                [
+                  -3.678725242614746,
+                  3.0385324954986572,
+                  -0.3836384415626526,
+                  -0.3836384415626526,
+                  -3.6539840698242188,
+                  -0.06481815129518509,
+                  10.292281150817871,
+                  -0.7516288757324219,
+                  -0.31114959716796875,
+                  -0.31114959716796875,
+                  -0.31114959716796875,
+                  0.7476316755963239
+                ],
+                [
+                  -2.192815065383911,
+                  -2.7314486503601074,
+                  -1.892220139503479,
+                  -1.892220139503479,
+                  -1.0725048780441284,
+                  -1.5881106853485107,
+                  -1.0528508424758911,
+                  10.333101272583008,
+                  3.49422025680542,
+                  3.49422025680542,
+                  3.49422025680542,
+                  3.8110424746024045
+                ]
+              ]
+            }
+          }
+        }
+      }
+    },
+    "intentDomains": {},
+    "extraSentences": [
+      [
+        "en",
+        "latest movies"
+      ],
+      [
+        "en",
+        "upcoming films"
+      ],
+      [
+        "en",
+        "new movies"
+      ],
+      [
+        "en",
+        "latest releases"
+      ],
+      [
+        "en",
+        "telugu movies"
+      ],
+      [
+        "en",
+        "trending"
+      ],
+      [
+        "en",
+        "what is popular"
+      ]
+    ]
+  },
+  "ner": {
+    "settings": {
+      "tag": "ner",
+      "entityPreffix": "%",
+      "entitySuffix": "%"
+    },
+    "rules": {}
+  },
+  "nlgManager": {
+    "settings": {
+      "tag": "nlg-manager"
+    },
+    "responses": {}
+  },
+  "actionManager": {
+    "settings": {
+      "tag": "action-manager"
+    },
+    "actions": {}
+  },
+  "slotManager": {}
+}

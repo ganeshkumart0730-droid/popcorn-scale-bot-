@@ -1,0 +1,62 @@
+name: Popcorn Scale Automations (Cloud)
+
+on:
+  schedule:
+    # Daily check for trailers and news (IST: 9AM, 1PM, 5PM, 9PM -> UTC: 3:30, 7:30, 11:30, 15:30)
+    - cron: '30 3,7,11,15 * * *'
+    
+    # Weekly Guide (Every Monday at 00:00 UTC)
+    - cron: '0 0 * * 1'
+  workflow_dispatch: 
+
+permissions:
+  contents: write
+
+jobs:
+  run-bots:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (Cloud Version)
+        run: |
+          cd cloud_version
+          npm install
+
+      - name: Run Trailer Bot
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          cd cloud_version
+          node cloud_trailers.js
+
+      - name: Run Sentinel Bot
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          cd cloud_version
+          node cloud_sentinel.js
+
+      - name: Run Weekly & Picks (Only on Monday)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 0 * * 1'
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          cd cloud_version
+          node cloud_weekly.js
+          node cloud_picks.js
+
+      - name: Commit and push state changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update cloud automation states [skip ci]"
+          file_pattern: 'cloud_version/*.json'

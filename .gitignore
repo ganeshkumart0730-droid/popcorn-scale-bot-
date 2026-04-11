@@ -1,0 +1,14 @@
+node_modules/
+.wwebjs_auth/
+.wwebjs_cache/
+.env
+debug_time.js
+check_titles.js
+*.log
+*.tmp
+.DS_Store
+apply_fix.js
+fix_networkidle.js
+migrate_playwright.js
+patch_scripts.js
+patch_trailers.js

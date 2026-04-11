@@ -1,0 +1,32 @@
+
+    <html>
+    <head>
+        <title>Popcorn Scale - WhatsApp Reconnect</title>
+        <style>
+            body { background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
+            .container { background: white; padding: 30px; display: inline-block; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+            h1 { margin-bottom: 20px; color: #f39c12; }
+            p { margin-bottom: 30px; opacity: 0.8; font-size: 1.1em; }
+            #qrcode { margin: 0 auto; }
+            #qrcode img { margin: 0 auto; }
+        </style>
+    </head>
+    <body>
+        <h1>🍿 POPCORN SCALE 🍿</h1>
+        <p>Your session timed out. Please scan the code below to reconnect the bot.</p>
+        <div class="container">
+            <div id="qrcode"></div>
+        </div>
+        <p style="margin-top: 40px; color: #2ecc71;"><b>Bot will auto-connect once scanned!</b></p>
+
+        <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
+        <script>
+            new QRCode(document.getElementById("qrcode"), {
+                text: "2@tEuer8In/XWB/jQZXfggrQjEI+1/Ewos90nmRqa231a4gJxVIy0vzNl0IUi6lJwM97M3mVp+dWA03SiI7uoCrsE1ZtM/LLo1xfY=,eXuliTvM+s2c3kgaj9kbuWEW+vOhnjkW8zivP1pWzWE=,Ahl1Ohit1nyNz1HE2YSVCYslJLLJfb5cbxdpPXDyCWA=,InklykxgFY11enXc2bSArOe+LICXfMk4guB3APJffuM=,1",
+                width: 300,
+                height: 300
+            });
+        </script>
+    </body>
+    </html>
+    
