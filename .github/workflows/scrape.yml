@@ -32,28 +32,13 @@ jobs:
           cd cloud_version
           npm install
 
-      - name: Run Trailer Bot
+      - name: Run Unified Popcorn Bot 🍿
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           cd cloud_version
-          node cloud_trailers.js
-
-      - name: Run Sentinel Bot
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-        run: |
-          cd cloud_version
-          node cloud_sentinel.js
-
-      - name: Run Weekly & Picks (Only on Monday)
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 0 * * 1'
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-        run: |
-          cd cloud_version
-          node cloud_weekly.js
-          node cloud_picks.js
+          node cloud_main.js
 
       - name: Commit and push state changes
         uses: stefanzweifel/git-auto-commit-action@v5

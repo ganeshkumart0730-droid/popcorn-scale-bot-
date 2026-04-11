@@ -72,98 +72,76 @@ async function scrapeDetails(context, url) {
     } catch { return null; } finally { await page.close(); }
 }
 
-(async () => {
-    log('🚀 Starting Cloud Weekly Bot (Session: popcorn-main)');
-    const { client, mongoose } = await getCloudClient('popcorn-main');
+async function runWeekly(client) {
+    log('🗓️ Starting Weekly Releases Task...');
+    try {
+        const { monday, weekKey } = getWeekWindow();
+        let state = { lastSentWeek: '' };
+        if (fs.existsSync(STATE_FILE)) { try { state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {} }
 
-    let isNewSession = false;
-    client.on('qr', (qr) => {
-        isNewSession = true;
-        log('📲 SCAN THIS QR CODE IN YOUR GITHUB LOGS:');
-        qrcode.generate(qr, { small: true });
-    });
-
-    client.on('authenticated', () => {
-        log('🛡️  AUTHENTICATED! Session loaded from cloud.');
-    });
-
-    client.on('auth_failure', (msg) => {
-        log(`❌ AUTHENTICATION FAILURE: ${msg}`);
-    });
-
-    client.on('remote_session_saved', () => {
-        log('💾 Session successfully saved to MongoDB Atlas!');
-        if (isNewSession) log('✅ First-time setup complete. You won\'t need to scan again.');
-    });
-
-    client.on('ready', async () => {
-        log('✅ Connected! Processing weekly guide...');
-        try {
-            const { monday, weekKey } = getWeekWindow();
-            let state = { lastSentWeek: '' };
-            if (fs.existsSync(STATE_FILE)) { try { state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {} }
-
-            if (state.lastSentWeek === weekKey) {
-                log(`⏭️ Already sent this week's guide (${weekKey}). Skipping.`);
-            } else {
-                const browser = await chromium.launch({ headless: true });
-                const context = await browser.newContext(devices['iPhone 12']);
-                const page    = await context.newPage();
-
-                try {
-                    await page.goto(SCRAPE_URL, { waitUntil: 'load', timeout: 60000 });
-                    await page.waitForTimeout(6000);
-                    const list = await page.evaluate(() => {
-                        const containers = Array.from(document.querySelectorAll('a[class*="MovieItem_container"]'));
-                        return containers.map(c => {
-                            const info = c.querySelector('div > div:last-child');
-                            return {
-                                title: info?.querySelector('div:nth-child(1)')?.innerText.trim() || c.querySelector('img')?.alt || 'Untitled',
-                                url: c.href,
-                                dateText: info?.querySelector('div:nth-child(3) div:first-child')?.innerText.trim() || ''
-                            };
-                        });
-                    });
-
-                    const thisWeek = list.filter(item => {
-                        const d = parseNokioDate(item.dateText);
-                        return (d && d >= monday && d <= new Date(monday.getTime() + 7 * 24 * 60 * 60 * 1000)) || item.dateText === '';
-                    });
-
-                    if (thisWeek.length > 0) {
-                        await client.sendMessage(WHATSAPP_GROUP_ID, `━━━━━━━━━━━━━━━\n🎬  *THIS WEEK'S RELEASES*  \n━━━━━━━━━━━━━━━\n_Latest movies dropping this week!_`);
-                        for (let item of thisWeek) {
-                            const details = await scrapeDetails(context, item.url);
-                            if (!details) continue;
-                            let caption = `🔥  *${item.title.toUpperCase()}*\n${PLATFORM_ICONS[details.platformKey] || '🎬  IN THEATRES'}\n🗓  ${item.dateText}\n`;
-                            if (details.language) caption += `🌐  ${details.language}\n`;
-                            if (details.synopsis) caption += `\n📝  ${details.synopsis.substring(0, 300)}...\n`;
-                            caption += `━━━━━━━━━━━━━━━━━━━━━━`;
-                            if (details.posterUrl) {
-                                try {
-                                    const media = await MessageMedia.fromUrl(details.posterUrl, { unsafeMime: true });
-                                    await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption });
-                                } catch { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
-                            } else { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
-                            await new Promise(r => setTimeout(r, MESSAGE_DELAY));
-                        }
-                        state.lastSentWeek = weekKey;
-                        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-                    }
-                } catch (e) { log(`❌ Scrape Error: ${e.message}`); } finally { await browser.close(); }
-            }
-        } catch (e) { log(`❌ Error: ${e.message}`); }
-
-        log('🏁 Work complete. Waiting for session sync...');
-        if (isNewSession) {
-            log('⏳ Syncing session to cloud (this takes 30s)...');
-            await new Promise(r => setTimeout(r, 45000)); 
+        if (state.lastSentWeek === weekKey) {
+            log(`⏭️ Already sent this week's guide (${weekKey}). Skipping.`);
+            return;
         }
 
-        await client.destroy();
-        await mongoose.disconnect();
-        process.exit(0);
-    });
+        const browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({
+            ...devices['iPhone 12'],
+            locale: 'en-IN',
+            timezoneId: 'Asia/Kolkata',
+            geolocation: { longitude: 77.2090, latitude: 28.6139 },
+            permissions: ['geolocation']
+        });
+        const page = await context.newPage();
 
-    client.initialize().catch(err => { log(`❌ Fatal Startup Error: ${err.message}`); process.exit(1); });
-})();
+        try {
+            log('📡 Scraping weekly releases...');
+            await page.goto(SCRAPE_URL, { waitUntil: 'load', timeout: 60000 });
+            await page.waitForTimeout(6000);
+            const list = await page.evaluate(() => {
+                const containers = Array.from(document.querySelectorAll('a[class*="MovieItem_container"]'));
+                return containers.map(c => {
+                    const info = c.querySelector('div > div:last-child');
+                    return {
+                        title: info?.querySelector('div:nth-child(1)')?.innerText.trim() || c.querySelector('img')?.alt || 'Untitled',
+                        url: c.href,
+                        dateText: info?.querySelector('div:nth-child(3) div:first-child')?.innerText.trim() || ''
+                    };
+                });
+            });
+
+            const thisWeek = list.filter(item => {
+                const d = parseNokioDate(item.dateText);
+                return (d && d >= monday && d <= new Date(monday.getTime() + 7 * 24 * 60 * 60 * 1000)) || item.dateText === '';
+            });
+
+            if (thisWeek.length > 0) {
+                log(`🔥 Found ${thisWeek.length} releases for this week!`);
+                await client.sendMessage(WHATSAPP_GROUP_ID, `━━━━━━━━━━━━━━━\n🎬  *THIS WEEK'S RELEASES*  \n━━━━━━━━━━━━━━━\n_Latest movies dropping this week!_`);
+                for (let item of thisWeek) {
+                    const details = await scrapeDetails(context, item.url);
+                    if (!details) continue;
+                    let caption = `🔥  *${item.title.toUpperCase()}*\n${PLATFORM_ICONS[details.platformKey] || '🎬  COMMING SOON'}\n🗓  ${item.dateText}\n`;
+                    if (details.language) caption += `🌐  ${details.language}\n`;
+                    if (details.synopsis) caption += `\n📝  ${details.synopsis.substring(0, 300)}...\n`;
+                    caption += `━━━━━━━━━━━━━━━━━━━━━━`;
+                    if (details.posterUrl) {
+                        try {
+                            const media = await MessageMedia.fromUrl(details.posterUrl, { unsafeMime: true });
+                            await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption });
+                        } catch { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
+                    } else { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
+                    await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+                }
+                state.lastSentWeek = weekKey;
+                fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+            } else {
+                log('⏭️ No releases found for this week window.');
+            }
+        } catch (e) { log(`❌ Scrape Error: ${e.message}`); } finally { await browser.close(); }
+    } catch (e) {
+        log(`❌ Weekly Error: ${e.message}`);
+    }
+}
+
+module.exports = { runWeekly };
