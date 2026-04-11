@@ -44,38 +44,56 @@ async function scrapePicks() {
 }
 
 (async () => {
-    log('🚀 Starting Cloud Picks Bot');
-    const { client, mongoose } = await getCloudClient('picks-bot');
+    log('🚀 Starting Cloud Picks Bot (Session: popcorn-main)');
+    const { client, mongoose } = await getCloudClient('popcorn-main');
 
+    let isNewSession = false;
     client.on('qr', (qr) => {
+        isNewSession = true;
         log('📲 SCAN THIS QR CODE IN YOUR GITHUB LOGS:');
         qrcode.generate(qr, { small: true });
     });
 
-    client.on('ready', async () => {
-        log('✅ Connected!');
-        let state = { lastSentWeek: '' };
-        if (fs.existsSync(STATE_FILE)) { try { state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {} }
+    client.on('remote_session_saved', () => {
+        log('💾 Session successfully saved to MongoDB Atlas!');
+        if (isNewSession) log('✅ First-time setup complete. You won\'t need to scan again.');
+    });
 
-        const picks = await scrapePicks();
-        if (picks.length > 0) {
-            if (state.lastSentWeek === picks[0].title) {
-                log(`⏭️ Already sent this week's picks (${picks[0].title}). Skipping.`);
-            } else {
-                for (let p of picks) {
-                    let caption = `🌟  *WEEKLY PICK #${p.rank}*\n🔥  *${p.title.toUpperCase()}*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
-                    if (p.posterUrl) {
-                        try {
-                            const media = await MessageMedia.fromUrl(p.posterUrl, { unsafeMime: true });
-                            await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption });
-                        } catch { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
-                    } else { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
-                    await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+    client.on('ready', async () => {
+        log('✅ Connected! Processing weekly picks...');
+        try {
+            let state = { lastSentWeek: '' };
+            if (fs.existsSync(STATE_FILE)) { try { state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {} }
+
+            const picks = await scrapePicks();
+            if (picks.length > 0) {
+                if (state.lastSentWeek === picks[0].title) {
+                    log(`⏭️ Already sent this week's picks (${picks[0].title}). Skipping.`);
+                } else {
+                    for (let p of picks) {
+                        let caption = `🌟  *WEEKLY PICK #${p.rank}*\n🔥  *${p.title.toUpperCase()}*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+                        if (p.posterUrl) {
+                            try {
+                                const media = await MessageMedia.fromUrl(p.posterUrl, { unsafeMime: true });
+                                await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption });
+                            } catch { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
+                        } else { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
+                        await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+                    }
+                    state.lastSentWeek = picks[0].title;
+                    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
                 }
-                state.lastSentWeek = picks[0].title;
-                fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
             }
+        } catch (e) {
+            log(`❌ Error: ${e.message}`);
         }
+
+        log('🏁 Work complete. Waiting for session sync...');
+        if (isNewSession) {
+            log('⏳ Syncing session to cloud (this takes 30s)...');
+            await new Promise(r => setTimeout(r, 45000)); 
+        }
+
         await client.destroy();
         await mongoose.disconnect();
         process.exit(0);

@@ -79,48 +79,74 @@ async function scrapeTrailers() {
 }
 
 (async () => {
-    log('🚀 Starting Cloud Trailer Bot');
-    const { client, mongoose } = await getCloudClient('trailer-bot');
+    log('🚀 Starting Cloud Trailer Bot (Session: popcorn-main)');
+    const { client, mongoose } = await getCloudClient('popcorn-main');
+
+    let isNewSession = false;
 
     client.on('qr', (qr) => {
+        isNewSession = true;
         log('📲 SCAN THIS QR CODE IN YOUR GITHUB LOGS:');
         qrcode.generate(qr, { small: true });
     });
 
+    client.on('remote_session_saved', () => {
+        log('💾 Session successfully saved to MongoDB Atlas!');
+        if (isNewSession) {
+            log('✅ First-time setup complete. You won\'t need to scan again.');
+        }
+    });
+
     client.on('ready', async () => {
         log('✅ Connected! Processing...');
-        let sentUrls = [];
-        if (fs.existsSync(STATE_FILE)) { try { sentUrls = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); if (!Array.isArray(sentUrls)) sentUrls = []; } catch { sentUrls = []; } }
-
-        const items = await scrapeTrailers();
-        const fresh = items.filter(i => !sentUrls.includes(i.url));
-
-        if (fresh.length > 0) {
-            log(`🔥 Found ${fresh.length} NEW trailers!`);
-            const browser = await chromium.launch({ headless: true });
-            const context = await browser.newContext(devices['iPhone 12']);
-
-            for (let item of fresh) {
-                const details = await scrapeDetails(context, item.url);
-                if (!details || !details.trailer) continue;
-
-                let caption = `🎬  *NEW TRAILER RELEASE*\n🔥  *${item.title.toUpperCase()}*\n${PLATFORM_ICONS[details.platformKey] || '🎬  IN THEATRES'}\n────────────────────\n`;
-                let meta = [];
-                if (details.language) meta.push(`🌐  ${details.language}`);
-                if (details.genre) meta.push(`🎭  ${details.genre}`);
-                if (details.imdbRating) meta.push(`⭐  IMDb: ${details.imdbRating}`);
-                if (meta.length > 0) caption += meta.join(' | ') + '\n';
-                if (details.synopsis) caption += `\n📝  ${details.synopsis.substring(0, 350)}...\n`;
-                caption += `\n🎥  ${details.trailer}\n━━━━━━━━━━━━━━━━━━━━━━`;
-
-                await client.sendMessage(WHATSAPP_GROUP_ID, caption);
-                await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+        try {
+            let sentUrls = [];
+            if (fs.existsSync(STATE_FILE)) { 
+                try { 
+                    sentUrls = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); 
+                    if (!Array.isArray(sentUrls)) sentUrls = []; 
+                } catch { sentUrls = []; } 
             }
-            await browser.close();
-            const updated = [...new Set([...sentUrls, ...fresh.map(i => i.url)])];
-            fs.writeFileSync(STATE_FILE, JSON.stringify(updated.slice(-100), null, 2));
+
+            const items = await scrapeTrailers();
+            const fresh = items.filter(i => !sentUrls.includes(i.url));
+
+            if (fresh.length > 0) {
+                log(`🔥 Found ${fresh.length} NEW trailers!`);
+                const browser = await chromium.launch({ headless: true });
+                const context = await browser.newContext(devices['iPhone 12']);
+
+                for (let item of fresh) {
+                    const details = await scrapeDetails(context, item.url);
+                    if (!details || !details.trailer) continue;
+
+                    let caption = `🎬  *NEW TRAILER RELEASE*\n🔥  *${item.title.toUpperCase()}*\n${PLATFORM_ICONS[details.platformKey] || '🎬  IN THEATRES'}\n────────────────────\n`;
+                    let meta = [];
+                    if (details.language) meta.push(`🌐  ${details.language}`);
+                    if (details.genre) meta.push(`🎭  ${details.genre}`);
+                    if (details.imdbRating) meta.push(`⭐  IMDb: ${details.imdbRating}`);
+                    if (meta.length > 0) caption += meta.join(' | ') + '\n';
+                    if (details.synopsis) caption += `\n📝  ${details.synopsis.substring(0, 350)}...\n`;
+                    caption += `\n🎥  ${details.trailer}\n━━━━━━━━━━━━━━━━━━━━━━`;
+
+                    await client.sendMessage(WHATSAPP_GROUP_ID, caption);
+                    await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+                }
+                await browser.close();
+                const updated = [...new Set([...sentUrls, ...fresh.map(i => i.url)])];
+                fs.writeFileSync(STATE_FILE, JSON.stringify(updated.slice(-100), null, 2));
+            }
+        } catch (e) {
+            log(`❌ Error during task: ${e.message}`);
         }
-        log('🏁 Work complete. Closing...');
+
+        log('🏁 Work complete. Waiting for session sync...');
+        // Wait a bit to ensure RemoteAuth syncs if it's a new session
+        if (isNewSession) {
+            log('⏳ Syncing session to cloud (this takes 30s)...');
+            await new Promise(r => setTimeout(r, 45000)); 
+        }
+
         await client.destroy();
         await mongoose.disconnect();
         process.exit(0);

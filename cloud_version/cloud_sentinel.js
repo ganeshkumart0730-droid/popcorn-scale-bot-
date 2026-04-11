@@ -45,40 +45,58 @@ async function fetchNews() {
 }
 
 (async () => {
-    log('🚀 Starting Cloud Sentinel Bot');
-    const { client, mongoose } = await getCloudClient('sentinel-bot');
+    log('🚀 Starting Cloud Sentinel Bot (Session: popcorn-main)');
+    const { client, mongoose } = await getCloudClient('popcorn-main');
 
+    let isNewSession = false;
     client.on('qr', (qr) => {
+        isNewSession = true;
         log('📲 SCAN THIS QR CODE IN YOUR GITHUB LOGS:');
         qrcode.generate(qr, { small: true });
     });
 
+    client.on('remote_session_saved', () => {
+        log('💾 Session successfully saved to MongoDB Atlas!');
+        if (isNewSession) log('✅ First-time setup complete. You won\'t need to scan again.');
+    });
+
     client.on('ready', async () => {
-        log('✅ Connected!');
-        let sentTitles = [];
-        if (fs.existsSync(STATE_FILE)) { try { sentTitles = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); if(!Array.isArray(sentTitles)) sentTitles=[]; } catch { sentTitles = []; } }
+        log('✅ Connected! Processing news...');
+        try {
+            let sentTitles = [];
+            if (fs.existsSync(STATE_FILE)) { try { sentTitles = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); if(!Array.isArray(sentTitles)) sentTitles=[]; } catch { sentTitles = []; } }
 
-        const items = await fetchNews();
-        const fresh = items.filter(i => i.title && !sentTitles.includes(i.title)).slice(0, FETCH_COUNT);
+            const items = await fetchNews();
+            const fresh = items.filter(i => i.title && !sentTitles.includes(i.title)).slice(0, FETCH_COUNT);
 
-        if (fresh.length > 0) {
-            log(`🔥 Found ${fresh.length} fresh stories.`);
-            for (let item of fresh) {
-                let card = `━━━━━━━━━━━━━━━━━━━━━━\n🍿  *POPCORN SCALE BUZZ*\n━━━━━━━━━━━━━━━━━━━━━━\n\n🎬  *${item.title.toUpperCase()}*\n\n${item.body}\n\n`;
-                if (item.url) card += `🔗  _Full coverage:_ ${item.url}\n`;
-                card += `━━━━━━━━━━━━━━━━━━━━━━`;
+            if (fresh.length > 0) {
+                log(`🔥 Found ${fresh.length} fresh stories.`);
+                for (let item of fresh) {
+                    let card = `━━━━━━━━━━━━━━━━━━━━━━\n🍿  *POPCORN SCALE BUZZ*\n━━━━━━━━━━━━━━━━━━━━━━\n\n🎬  *${item.title.toUpperCase()}*\n\n${item.body}\n\n`;
+                    if (item.url) card += `🔗  _Full coverage:_ ${item.url}\n`;
+                    card += `━━━━━━━━━━━━━━━━━━━━━━`;
 
-                if (item.image) {
-                    try {
-                        const media = await MessageMedia.fromUrl(item.image, { unsafeMime: true });
-                        await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption: card });
-                    } catch { await client.sendMessage(WHATSAPP_GROUP_ID, card); }
-                } else { await client.sendMessage(WHATSAPP_GROUP_ID, card); }
-                await new Promise(r => setTimeout(r, 4000));
+                    if (item.image) {
+                        try {
+                            const media = await MessageMedia.fromUrl(item.image, { unsafeMime: true });
+                            await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption: card });
+                        } catch { await client.sendMessage(WHATSAPP_GROUP_ID, card); }
+                    } else { await client.sendMessage(WHATSAPP_GROUP_ID, card); }
+                    await new Promise(r => setTimeout(r, 4000));
+                }
+                const updated = [...new Set([...sentTitles, ...fresh.map(i => i.title)])];
+                fs.writeFileSync(STATE_FILE, JSON.stringify(updated.slice(-300), null, 2));
             }
-            const updated = [...new Set([...sentTitles, ...fresh.map(i => i.title)])];
-            fs.writeFileSync(STATE_FILE, JSON.stringify(updated.slice(-300), null, 2));
+        } catch (e) {
+            log(`❌ Error: ${e.message}`);
         }
+
+        log('🏁 Work complete. Waiting for session sync...');
+        if (isNewSession) {
+            log('⏳ Syncing session to cloud (this takes 30s)...');
+            await new Promise(r => setTimeout(r, 45000)); 
+        }
+
         await client.destroy();
         await mongoose.disconnect();
         process.exit(0);
