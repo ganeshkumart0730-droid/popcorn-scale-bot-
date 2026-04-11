@@ -12,7 +12,18 @@ async function getCloudClient(clientId) {
     }
 
     console.log(`🔌 [${clientId}] Connecting to MongoDB Atlas...`);
-    await mongoose.connect(process.env.MONGODB_URI);
+    try {
+        await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 15000, // Timeout after 15s instead of 30s
+        });
+        console.log(`✅ [${clientId}] MongoDB Connected!`);
+    } catch (err) {
+        console.error(`❌ [${clientId}] MongoDB Connection Error:`, err.message);
+        if (err.message.includes('Server selection timed out')) {
+            console.error('👉 TIP: Check your MongoDB Atlas "Network Access" settings. You MUST add "0.0.0.0/0" (Allow from Anywhere) to let GitHub connect.');
+        }
+        process.exit(1);
+    }
     
     const store = new MongoStore({ mongoose: mongoose });
     
