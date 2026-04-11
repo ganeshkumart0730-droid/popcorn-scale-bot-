@@ -90,15 +90,20 @@ async function scrapeTrailers() {
         qrcode.generate(qr, { small: true });
     });
 
+    client.on('authenticated', () => {
+        log('🛡️  AUTHENTICATED! Session loaded from cloud.');
+    });
+
+    client.on('auth_failure', (msg) => {
+        log(`❌ AUTHENTICATION FAILURE: ${msg}`);
+    });
+
     client.on('remote_session_saved', () => {
-        log('💾 Session successfully saved to MongoDB Atlas!');
-        if (isNewSession) {
-            log('✅ First-time setup complete. You won\'t need to scan again.');
-        }
+        log('💾 Session successfully saved/synced to MongoDB Atlas! (popcorn_sessions collection)');
     });
 
     client.on('ready', async () => {
-        log('✅ Connected! Processing...');
+        log('✅ Client is Ready! Starting scrape cycle...');
         try {
             let sentUrls = [];
             if (fs.existsSync(STATE_FILE)) { 
@@ -117,40 +122,101 @@ async function scrapeTrailers() {
                 const context = await browser.newContext(devices['iPhone 12']);
 
                 for (let item of fresh) {
-                    const details = await scrapeDetails(context, item.url);
-                    if (!details || !details.trailer) continue;
+                    const page = await context.newPage();
+                    try {
+                        log(`🎬 Processing: ${item.title}`);
+                        await page.goto(item.url, { waitUntil: 'load', timeout: 60000 });
+                        await page.waitForTimeout(6000);
 
-                    let caption = `🎬  *NEW TRAILER RELEASE*\n🔥  *${item.title.toUpperCase()}*\n${PLATFORM_ICONS[details.platformKey] || '🎬  IN THEATRES'}\n────────────────────\n`;
-                    let meta = [];
-                    if (details.language) meta.push(`🌐  ${details.language}`);
-                    if (details.genre) meta.push(`🎭  ${details.genre}`);
-                    if (details.imdbRating) meta.push(`⭐  IMDb: ${details.imdbRating}`);
-                    if (meta.length > 0) caption += meta.join(' | ') + '\n';
-                    if (details.synopsis) caption += `\n📝  ${details.synopsis.substring(0, 350)}...\n`;
-                    caption += `\n🎥  ${details.trailer}\n━━━━━━━━━━━━━━━━━━━━━━`;
+                        const data = await page.evaluate(() => {
+                            const result = { platformKey: 'theatres', language: null, genre: null, imdbRating: null, synopsis: null, trailer: null };
+                            
+                            // 1. Better Platform Detection from Overlay Text
+                            const bar = document.querySelector('div[class*="DetailsBar_info"]');
+                            if (bar) {
+                                const parts = bar.innerText.split('|').map(p => p.trim());
+                                if (parts.length > 2) {
+                                    const raw = parts[parts.length - 1].toLowerCase();
+                                    if (raw.includes('netflix')) result.platformKey = 'netflix';
+                                    else if (raw.includes('prime')) result.platformKey = 'prime';
+                                    else if (raw.includes('hotstar') || raw.includes('jio')) result.platformKey = 'hotstar';
+                                    else if (raw.includes('zee5')) result.platformKey = 'zee5';
+                                    else if (raw.includes('sony')) result.platformKey = 'sony';
+                                    else if (raw.includes('apple')) result.platformKey = 'apple';
+                                }
+                            }
 
-                    await client.sendMessage(WHATSAPP_GROUP_ID, caption);
-                    await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+                            // 2. Details Scrape
+                            const detailsDiv = document.querySelector('div[class*="MovieInfo_movie-details"]');
+                            if (detailsDiv) {
+                                const lines = detailsDiv.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                                const langs = ['Hindi','Tamil','Telugu','Malayalam','Kannada','English','Japanese','Korean'];
+                                for (const line of lines) {
+                                    if (line.match(/\d{4}/)) {
+                                        for (const l of langs) { if (line.includes(l)) { result.language = l; break; } }
+                                    } else if (line.length > 2 && line.length < 50 && !result.genre) {
+                                        result.genre = line;
+                                    }
+                                }
+                            }
+
+                            const imdbSpan = document.querySelector('span[class*="ImdbRating_rating"]');
+                            if (imdbSpan) { const m = imdbSpan.innerText.match(/(\d\.\d)/); if (m) result.imdbRating = m[1]; }
+
+                            const tabContainer = document.querySelector('div[class*="MovieInfoTabItems_container"]');
+                            if (tabContainer) {
+                                const parts = tabContainer.innerText.split('\n').filter(p => p.trim().length > 50);
+                                if (parts.length > 0) result.synopsis = parts[0].trim();
+                            }
+
+                            const iframe = document.querySelector('iframe[src*="youtube.com"]');
+                            if (iframe && iframe.src.match(/\/embed\/([^?]+)/)) {
+                                result.trailer = `https://www.youtube.com/watch?v=${iframe.src.match(/\/embed\/([^?]+)/)[1]}`;
+                            }
+
+                            return result;
+                        });
+
+                        if (data.trailer) {
+                            let caption = `🎬  *NEW TRAILER RELEASE*\n🔥  *${item.title.toUpperCase()}*\n${PLATFORM_ICONS[data.platformKey] || '🎬  IN THEATRES'}\n────────────────────\n`;
+                            let meta = [];
+                            if (data.language) meta.push(`🌐  ${data.language}`);
+                            if (data.genre) meta.push(`🎭  ${data.genre}`);
+                            if (data.imdbRating) meta.push(`⭐  IMDb: ${data.imdbRating}`);
+                            if (meta.length > 0) caption += meta.join(' | ') + '\n';
+                            if (data.synopsis) caption += `\n📝  ${data.synopsis.substring(0, 350)}...\n`;
+                            caption += `\n🎥  ${data.trailer}\n━━━━━━━━━━━━━━━━━━━━━━`;
+
+                            await client.sendMessage(WHATSAPP_GROUP_ID, caption);
+                            log(`🚀 Message Sent: ${item.title}`);
+                            await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+                        }
+                    } catch (err) {
+                        log(`⚠️ Error detailing ${item.title}: ${err.message}`);
+                    } finally {
+                        await page.close();
+                    }
                 }
                 await browser.close();
                 const updated = [...new Set([...sentUrls, ...fresh.map(i => i.url)])];
                 fs.writeFileSync(STATE_FILE, JSON.stringify(updated.slice(-100), null, 2));
             }
         } catch (e) {
-            log(`❌ Error during task: ${e.message}`);
+            log(`❌ Global Scrape Error: ${e.message}`);
         }
 
-        log('🏁 Work complete. Waiting for session sync...');
-        // Wait a bit to ensure RemoteAuth syncs if it's a new session
+        log('🏁 Tasks Finished. Waiting for cloud sync backup...');
         if (isNewSession) {
-            log('⏳ Syncing session to cloud (this takes 30s)...');
+            log('⏳ New session detected! Waiting 45s for first cloud upload...');
             await new Promise(r => setTimeout(r, 45000)); 
         }
 
         await client.destroy();
         await mongoose.disconnect();
+        log('💤 Bot Shutdown Cleanup Complete.');
         process.exit(0);
     });
 
-    client.initialize().catch(err => { log(`❌ Fatal: ${err.message}`); process.exit(1); });
+    log('🛠️ Initializing Bot...');
+    client.initialize().catch(err => { log(`❌ Fatal Startup Error: ${err.message}`); process.exit(1); });
 })();

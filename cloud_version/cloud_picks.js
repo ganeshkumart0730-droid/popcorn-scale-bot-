@@ -54,6 +54,14 @@ async function scrapePicks() {
         qrcode.generate(qr, { small: true });
     });
 
+    client.on('authenticated', () => {
+        log('🛡️  AUTHENTICATED! Session loaded from cloud.');
+    });
+
+    client.on('auth_failure', (msg) => {
+        log(`❌ AUTHENTICATION FAILURE: ${msg}`);
+    });
+
     client.on('remote_session_saved', () => {
         log('💾 Session successfully saved to MongoDB Atlas!');
         if (isNewSession) log('✅ First-time setup complete. You won\'t need to scan again.');

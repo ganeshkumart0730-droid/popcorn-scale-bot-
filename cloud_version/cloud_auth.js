@@ -25,12 +25,15 @@ async function getCloudClient(clientId) {
         process.exit(1);
     }
     
-    const store = new MongoStore({ mongoose: mongoose });
+    const store = new MongoStore({ 
+        mongoose: mongoose,
+        collection: 'whatsapp_sessions' // Explicit collection for consistency
+    });
     
-    // 🧹 Clean up local session folder to avoid conflicts in cloud environments
+    // 🧹 Purge local session folder to ensure we always pull from MongoDB Atlas in the cloud
     const sessionPath = path.join(process.cwd(), '.wwebjs_auth');
     if (fs.existsSync(sessionPath)) {
-        console.log(`🧹 [${clientId}] Cleaning up local session cache...`);
+        console.log(`🧹 [${clientId}] Cleaning local cache to prevent cloud conflicts...`);
         try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch (e) {}
     }
 
@@ -38,11 +41,19 @@ async function getCloudClient(clientId) {
         authStrategy: new RemoteAuth({
             clientId: clientId, 
             store: store,
-            backupSyncIntervalMs: 300000 
+            backupSyncIntervalMs: 60000 // Fast sync (every minute) for initial setup
         }),
         puppeteer: {
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu'
+            ]
         }
     });
 
