@@ -41,6 +41,10 @@ async function restoreSession(clientId) {
             if (!fs.existsSync(extractPath)) fs.mkdirSync(extractPath, { recursive: true });
             zip.extractAllTo(extractPath, true);
             
+            // 🛡️ [DIAGNOSTIC] Verify folder structure
+            const filesInExt = fs.readdirSync(extractPath);
+            console.log(`📂 Structure in ${clientId}: [${filesInExt.slice(0, 5).join(', ')}${filesInExt.length > 5 ? '...' : ''}]`);
+
             // 🛡️ [DEEP LOCK BREAKER] Remove all possible Chromium lock files
             const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Default/SingletonLock'];
             lockFiles.forEach(file => {
