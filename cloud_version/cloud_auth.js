@@ -8,15 +8,24 @@ const fs = require('fs');
  * 🔐 Cloud Auth Manager
  * Connects to MongoDB Atlas and returns a WhatsApp Client with RemoteAuth.
  */
-async function getCloudClient(clientId = 'popcorn-stable-v1') {
+async function getCloudClient(clientId = 'popcorn-stable-v2') {
     if (!process.env.MONGODB_URI) {
         throw new Error('❌ MONGODB_URI is not defined in environment variables.');
     }
 
+    // 🛡️ Ensure steady connection
     if (mongoose.connection.readyState === 0) {
         console.log(`🔌 [${clientId}] Connecting to MongoDB Atlas...`);
-        await mongoose.connect(process.env.MONGODB_URI);
+        await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 10000,
+            socketTimeoutMS: 45000,
+        });
         console.log(`✅ [${clientId}] MongoDB Connected!`);
+    }
+
+    // Wait for the connection to be fully 'open' to avoid "collection of undefined" errors
+    if (mongoose.connection.readyState !== 1) {
+        await new Promise((resolve) => mongoose.connection.once('open', resolve));
     }
 
     const store = new MongoStore({ 
@@ -24,15 +33,11 @@ async function getCloudClient(clientId = 'popcorn-stable-v1') {
         collection: 'whatsapp_sessions' 
     });
     
-    // 🛡️ [IMPORTANT] REMOVED the manual cache deletion. 
-    // We must let RemoteAuth manage the .wwebjs_auth folder so it can correctly 
-    // download and use the session from MongoDB Atlas.
-
     const client = new Client({
         authStrategy: new RemoteAuth({
             clientId: clientId, 
             store: store,
-            backupSyncIntervalMs: 60000 // Fast sync (every minute)
+            backupSyncIntervalMs: 60000 
         }),
         puppeteer: {
             headless: true,

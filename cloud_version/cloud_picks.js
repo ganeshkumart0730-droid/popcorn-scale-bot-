@@ -76,46 +76,5 @@ async function runPicks(client) {
     }
 }
 
+
 module.exports = { runPicks };
-
-(async () => {
-    log('🚀 Starting Cloud Picks Bot (Session: popcorn-main)');
-    const { client, mongoose } = await getCloudClient('popcorn-main');
-
-    let isNewSession = false;
-    client.on('qr', (qr) => {
-        isNewSession = true;
-        log('📲 SCAN THIS QR CODE IN YOUR GITHUB LOGS:');
-        qrcode.generate(qr, { small: true });
-    });
-
-    client.on('authenticated', () => {
-        log('🛡️  AUTHENTICATED! Session loaded from cloud.');
-    });
-
-    client.on('auth_failure', (msg) => {
-        log(`❌ AUTHENTICATION FAILURE: ${msg}`);
-    });
-
-    client.on('remote_session_saved', () => {
-        log('💾 Session successfully saved to MongoDB Atlas!');
-        if (isNewSession) log('✅ First-time setup complete. You won\'t need to scan again.');
-    });
-
-    client.on('ready', async () => {
-        log('✅ Connected! Processing weekly picks...');
-        await runPicks(client);
-
-        log('🏁 Work complete. Waiting for session sync...');
-        if (isNewSession) {
-            log('⏳ Syncing session to cloud (this takes 30s)...');
-            await new Promise(r => setTimeout(r, 45000)); 
-        }
-
-        await client.destroy();
-        await mongoose.disconnect();
-        process.exit(0);
-    });
-
-    client.initialize().catch(err => { log(`❌ Fatal: ${err.message}`); process.exit(1); });
-})();

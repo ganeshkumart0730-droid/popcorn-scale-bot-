@@ -1,9 +1,7 @@
 const { chromium, devices } = require('playwright-chromium');
 const { MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-const { getCloudClient } = require('./cloud_auth');
 
 // ⚙️ SETTINGS
 const WHATSAPP_GROUP_ID = "120363410812901879@g.us";
@@ -24,6 +22,38 @@ const PLATFORM_ICONS = {
 async function runTrailers(client) {
     log('🎬 Starting Trailers Task...');
     try {
+        let sentUrls = [];
+        if (fs.existsSync(STATE_FILE)) { 
+            try { 
+                sentUrls = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); 
+                if (!Array.isArray(sentUrls)) sentUrls = []; 
+            } catch { sentUrls = []; } 
+        }
+
+        // 🇮🇳 Regional Emulation to ensure correct India UI
+        const browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({
+            ...devices['iPhone 12'],
+            locale: 'en-IN',
+            timezoneId: 'Asia/Kolkata',
+            geolocation: { longitude: 77.2090, latitude: 28.6139 }, 
+            permissions: ['geolocation']
+        });
+
+        const tempPage = await context.newPage();
+        log(`📡 Scouting for new trailers...`);
+        await tempPage.goto(SCRAPE_URL, { waitUntil: 'load', timeout: 60000 });
+        await tempPage.waitForTimeout(6000);
+
+        const items = await tempPage.evaluate(() => {
+            const list = document.querySelector('div[id*="trending-trailers"]');
+            if (!list) return [];
+            return Array.from(list.querySelectorAll('a[href*="/movie/"]')).map(c => ({
+                title: c.querySelector('img')?.alt || 'Untitled',
+                url: c.href.split('?')[0].split('/trailers')[0].split('/reviews')[0],
+            }));
+        });
+        await tempPage.close();
 
         const fresh = items.filter(i => !sentUrls.includes(i.url));
         if (fresh.length > 0) {
@@ -36,13 +66,12 @@ async function runTrailers(client) {
                     await page.waitForTimeout(6000);
 
                     const data = await page.evaluate(() => {
-                        const result = { platformKey: null, language: null, genre: null, imdbRating: null, synopsis: null, trailer: null };
+                        const result = { platformKey: null, language: null, genre: null, imdbRating: null, synopsis: null, trailer: null, releaseDate: null };
                         
-                        // 1. DYNAMIC Platform Detection & Release Date from Text
                         const bar = document.querySelector('div[class*="DetailsBar_info"]');
                         if (bar) {
                             const text = bar.innerText.toLowerCase();
-                            console.log(`DEBUG [META]: ${text}`); // 🔍 Secret debug log for Antigravity
+                            console.log(`DEBUG [META]: ${text}`); 
 
                             const parts = text.split('|').map(p => p.trim());
                             
@@ -52,7 +81,7 @@ async function runTrailers(client) {
                                 result.releaseDate = releasePart.replace(/released:?\s*/i, '').trim();
                             }
 
-                            // Identify Platform (STREAMING TAKES PRIORITY OVER THEATRES)
+                            // Identify Platform (PRIORITY)
                             if (text.includes('netflix')) result.platformKey = 'netflix';
                             else if (text.includes('prime')) result.platformKey = 'prime';
                             else if (text.includes('hotstar') || text.includes('jio')) result.platformKey = 'hotstar';
@@ -62,7 +91,7 @@ async function runTrailers(client) {
                             else if (text.includes('theater') || text.includes('cinema')) result.platformKey = 'theatres';
                         }
 
-                        // 2. Metadata Extraction
+                        // Metadata Extraction
                         const detailsDiv = document.querySelector('div[class*="MovieInfo_movie-details"]');
                         if (detailsDiv) {
                             const lines = detailsDiv.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -81,7 +110,7 @@ async function runTrailers(client) {
 
                         const tabContainer = document.querySelector('div[class*="MovieInfoTabItems_container"]');
                         if (tabContainer) {
-                            const parts = tabContainer.innerText.split('\n').filter(p => p.trim().length > 50);
+                            const parts = tabContainer.innerText.split('\n').filter(p => l => l.trim().length > 50); // Fixed filter
                             if (parts.length > 0) result.synopsis = parts[0].trim();
                         }
 
