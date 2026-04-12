@@ -5,7 +5,7 @@ const path = require('path');
 
 // ⚙️ SETTINGS
 const WHATSAPP_GROUP_ID = "120363410812901879@g.us";
-const SCRAPE_URL        = "https://nokioapp.com/in/trailers/recent"; // Using /recent for higher reliability
+const SCRAPE_URL        = "https://nokioapp.com/in/trailers/recent"; 
 const STATE_FILE        = path.join(__dirname, 'last_sent_trailers.json');
 const MESSAGE_DELAY     = 3000;
 
@@ -45,7 +45,6 @@ async function runTrailers(client) {
         await tempPage.waitForTimeout(6000);
 
         const items = await tempPage.evaluate(() => {
-            // Updated robust selector: find all movie links in the main content area
             const links = Array.from(document.querySelectorAll('a[href*="/movie/"]'));
             return links.slice(0, 15).map(c => ({
                 title: c.querySelector('img')?.alt || c.innerText.trim() || 'Untitled',
@@ -68,27 +67,30 @@ async function runTrailers(client) {
                         const result = { platformKey: null, language: null, genre: null, imdbRating: null, synopsis: null, trailer: null, releaseDate: null };
                         
                         const bar = document.querySelector('div[class*="DetailsBar_info"]');
-                        if (bar) {
-                            const text = bar.innerText.toLowerCase();
-                            const parts = text.split('|').map(p => p.trim());
-                            
-                            // Extract Release Date
-                            const releasePart = parts.find(p => p.includes('release') || p.match(/\d{1,2}\s+[a-z]{3}\s+\d{4}/i));
-                            if (releasePart) {
-                                result.releaseDate = releasePart.replace(/released:?\s*/i, '').trim();
-                            }
+                        const pageTitle = document.title.toLowerCase();
+                        const trailerTitle = document.querySelector('div[class*="DetailsBar_trailer-title"]')?.innerText.toLowerCase() || "";
+                        
+                        // Combine all text sources for platform detection
+                        const combinedText = (bar ? bar.innerText.toLowerCase() : "") + " " + pageTitle + " " + trailerTitle;
 
-                            // Identify Platform (PRIORITY)
-                            if (text.includes('netflix')) result.platformKey = 'netflix';
-                            else if (text.includes('prime')) result.platformKey = 'prime';
-                            else if (text.includes('hotstar') || text.includes('jio')) result.platformKey = 'hotstar';
-                            else if (text.includes('zee5')) result.platformKey = 'zee5';
-                            else if (text.includes('sony')) result.platformKey = 'sony';
-                            else if (text.includes('apple')) result.platformKey = 'apple';
-                            else if (text.includes('theater') || text.includes('cinema')) result.platformKey = 'theatres';
+                        const parts = (bar ? bar.innerText.toLowerCase().split('|').map(p => p.trim()) : []);
+                        
+                        // 1. Extract Release Date
+                        const releasePart = parts.find(p => p.includes('release') || p.match(/\d{1,2}\s+[a-z]{3}\s+\d{4}/i));
+                        if (releasePart) {
+                            result.releaseDate = releasePart.replace(/released:?\s*/i, '').trim();
                         }
 
-                        // Metadata Extraction
+                        // 2. Identify Platform (STREAMING PRIORITY) - Checking combined sources
+                        if (combinedText.includes('netflix')) result.platformKey = 'netflix';
+                        else if (combinedText.includes('prime')) result.platformKey = 'prime';
+                        else if (combinedText.includes('hotstar') || combinedText.includes('jio')) result.platformKey = 'hotstar';
+                        else if (combinedText.includes('zee5')) result.platformKey = 'zee5';
+                        else if (combinedText.includes('sony')) result.platformKey = 'sony';
+                        else if (combinedText.includes('apple')) result.platformKey = 'apple';
+                        else if (combinedText.includes('theater') || combinedText.includes('cinema')) result.platformKey = 'theatres';
+
+                        // 3. Metadata Extraction
                         const detailsDiv = document.querySelector('div[class*="MovieInfo_movie-details"]');
                         if (detailsDiv) {
                             const lines = detailsDiv.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -107,7 +109,7 @@ async function runTrailers(client) {
 
                         const tabContainer = document.querySelector('div[class*="MovieInfoTabItems_container"]');
                         if (tabContainer) {
-                            const parts = tabContainer.innerText.split('\n').filter(l => l.trim().length > 50);
+                            const parts = tabContainer.innerText.split('\n').filter(p => p.trim().length > 50);
                             if (parts.length > 0) result.synopsis = parts[0].trim();
                         }
 

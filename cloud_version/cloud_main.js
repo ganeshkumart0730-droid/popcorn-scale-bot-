@@ -14,6 +14,24 @@ function log(msg) {
     const { client, mongoose } = await getCloudClient();
 
     let isNewSession = false;
+    let syncResolved = false;
+
+    // 🛡️ [SAFETY LOCK] Track the sync status
+    const waitForSync = new Promise((resolve) => {
+        client.on('remote_session_saved', () => {
+            log('💾 Session successfully synced to MongoDB Atlas!');
+            syncResolved = true;
+            resolve();
+        });
+        
+        // Timeout safeguard
+        setTimeout(() => {
+            if (!syncResolved) {
+                log('⚠️ Sync timeout reached (2 mins). Proceeding...');
+                resolve();
+            }
+        }, 120000);
+    });
 
     client.on('qr', (qr) => {
         isNewSession = true;
@@ -27,11 +45,6 @@ function log(msg) {
 
     client.on('auth_failure', (msg) => {
         log(`❌ AUTHENTICATION FAILURE: ${msg}`);
-    });
-
-    client.on('remote_session_saved', () => {
-        log('💾 Session successfully synced to MongoDB Atlas!');
-        if (isNewSession) log('✅ SETUP COMPLETE. You won\'t need to scan again for any of the bots.');
     });
 
     client.on('ready', async () => {
@@ -63,9 +76,13 @@ function log(msg) {
             log(`❌ Fatal Error during task execution: ${e.message}`);
         }
 
+        // 🛡️ [SYNC FINALIZATION] Only exit when sync is confirmed
         if (isNewSession) {
-            log('⏳ New session detected! Waiting 45s for full cloud synchronization...');
-            await new Promise(r => setTimeout(r, 45000));
+            log('⏳ Finalizing cloud sync... Please DO NOT close.');
+            if (!syncResolved) {
+                await waitForSync;
+            }
+            log('✅ SETUP COMPLETE. You won\'t need to scan again for any of the bots.');
         }
 
         log('🏁 Closing connection and shutting down...');
