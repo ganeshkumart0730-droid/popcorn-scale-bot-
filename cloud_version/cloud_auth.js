@@ -37,7 +37,7 @@ async function getCloudClient(clientId = 'popcorn-final-v1') {
         authStrategy: new RemoteAuth({
             clientId: clientId, 
             store: store,
-            backupSyncIntervalMs: 30000 // 🛡️ Faster Sync (30s) to guarantee persistence
+            backupSyncIntervalMs: 60000 // 🛡️ Set back to 1 min (Required by library)
         }),
         puppeteer: {
             headless: true,
