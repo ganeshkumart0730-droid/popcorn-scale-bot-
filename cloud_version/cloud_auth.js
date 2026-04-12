@@ -21,7 +21,6 @@ async function restoreSession(clientId) {
         const db = mongoose.connection.db;
         const collection = db.collection('whatsapp_sessions');
         
-        // RemoteAuth-popcorn-final-v1 -> This is how RemoteAuth usually saves it
         const sessionData = await collection.findOne({ _id: `session-${clientId}` });
         
         if (sessionData && sessionData.data) {
@@ -50,7 +49,7 @@ async function restoreSession(clientId) {
 }
 
 /**
- * 📤 MANUALLY Save session to MongoDB
+ * 📤 MANUALLY Save session to MongoDB (Excludes heavy cache files)
  */
 async function saveSession(clientId) {
     if (!process.env.MONGODB_URI) return;
@@ -68,9 +67,14 @@ async function saveSession(clientId) {
 
         output.on('close', async () => {
             try {
-                console.log(`📤 [${clientId}] Zipping complete. Uploading to MongoDB...`);
-                const buffer = fs.readFileSync(zipPath);
+                const stats = fs.statSync(zipPath);
+                console.log(`📤 [${clientId}] Zipping complete. Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
                 
+                if (stats.size > 15.5 * 1024 * 1024) {
+                    throw new Error(`Session zip is too large (${(stats.size / 1024 / 1024).toFixed(2)}MB). Limit is 16MB.`);
+                }
+
+                const buffer = fs.readFileSync(zipPath);
                 const db = mongoose.connection.db;
                 const collection = db.collection('whatsapp_sessions');
                 
@@ -85,13 +89,30 @@ async function saveSession(clientId) {
                 resolve();
             } catch (err) {
                 console.error(`❌ [${clientId}] Upload failed:`, err.message);
+                if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
                 reject(err);
             }
         });
 
         archive.on('error', (err) => reject(err));
         archive.pipe(output);
-        archive.directory(sourceDir, false);
+        
+        // 🛡️ [OPTIMIZATION] Exclude heavy/unnecessary folders
+        archive.glob('**/*', {
+            cwd: sourceDir,
+            ignore: [
+                '**/Cache/**',
+                '**/Code Cache/**',
+                '**/GPUCache/**',
+                '**/Service Worker/**',
+                '**/Media/**',
+                '**/Storage/ext/*/def/GPUCache/**',
+                '**/*.log',
+                '**/*.tmp',
+                '**/crash_reporter.cfg'
+            ]
+        });
+
         archive.finalize();
     });
 }
