@@ -11,7 +11,7 @@ function log(msg) {
 
 (async () => {
     log('🎬 Starting Consolidated Popcorn Bot...');
-    const { client, mongoose } = await getCloudClient('popcorn-stable-v1');
+    const { client, mongoose } = await getCloudClient();
 
     let isNewSession = false;
 

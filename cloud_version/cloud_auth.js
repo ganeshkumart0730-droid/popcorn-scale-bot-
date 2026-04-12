@@ -8,7 +8,7 @@ const fs = require('fs');
  * 🔐 Cloud Auth Manager
  * Connects to MongoDB Atlas and returns a WhatsApp Client with RemoteAuth.
  */
-async function getCloudClient(clientId = 'popcorn-stable-v2') {
+async function getCloudClient(clientId = 'popcorn-final-v1') {
     if (!process.env.MONGODB_URI) {
         throw new Error('❌ MONGODB_URI is not defined in environment variables.');
     }
