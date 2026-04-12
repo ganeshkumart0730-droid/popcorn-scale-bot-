@@ -5,7 +5,7 @@ const path = require('path');
 
 // ⚙️ SETTINGS
 const WHATSAPP_GROUP_ID = "120363410812901879@g.us";
-const SCRAPE_URL        = "https://nokioapp.com/in/trailers";
+const SCRAPE_URL        = "https://nokioapp.com/in/trailers/recent"; // Using /recent for higher reliability
 const STATE_FILE        = path.join(__dirname, 'last_sent_trailers.json');
 const MESSAGE_DELAY     = 3000;
 
@@ -30,7 +30,6 @@ async function runTrailers(client) {
             } catch { sentUrls = []; } 
         }
 
-        // 🇮🇳 Regional Emulation to ensure correct India UI
         const browser = await chromium.launch({ headless: true });
         const context = await browser.newContext({
             ...devices['iPhone 12'],
@@ -46,12 +45,12 @@ async function runTrailers(client) {
         await tempPage.waitForTimeout(6000);
 
         const items = await tempPage.evaluate(() => {
-            const list = document.querySelector('div[id*="trending-trailers"]');
-            if (!list) return [];
-            return Array.from(list.querySelectorAll('a[href*="/movie/"]')).map(c => ({
-                title: c.querySelector('img')?.alt || 'Untitled',
+            // Updated robust selector: find all movie links in the main content area
+            const links = Array.from(document.querySelectorAll('a[href*="/movie/"]'));
+            return links.slice(0, 15).map(c => ({
+                title: c.querySelector('img')?.alt || c.innerText.trim() || 'Untitled',
                 url: c.href.split('?')[0].split('/trailers')[0].split('/reviews')[0],
-            }));
+            })).filter(i => i.url.includes('/movie/'));
         });
         await tempPage.close();
 
@@ -71,8 +70,6 @@ async function runTrailers(client) {
                         const bar = document.querySelector('div[class*="DetailsBar_info"]');
                         if (bar) {
                             const text = bar.innerText.toLowerCase();
-                            console.log(`DEBUG [META]: ${text}`); 
-
                             const parts = text.split('|').map(p => p.trim());
                             
                             // Extract Release Date
@@ -110,7 +107,7 @@ async function runTrailers(client) {
 
                         const tabContainer = document.querySelector('div[class*="MovieInfoTabItems_container"]');
                         if (tabContainer) {
-                            const parts = tabContainer.innerText.split('\n').filter(p => l => l.trim().length > 50); // Fixed filter
+                            const parts = tabContainer.innerText.split('\n').filter(l => l.trim().length > 50);
                             if (parts.length > 0) result.synopsis = parts[0].trim();
                         }
 

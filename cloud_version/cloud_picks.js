@@ -1,25 +1,16 @@
 const { chromium, devices } = require('playwright-chromium');
 const { MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
-const { getCloudClient } = require('./cloud_auth');
 
 // ⚙️ SETTINGS
 const WHATSAPP_GROUP_ID = "120363409136720699@g.us"; 
 const STATE_FILE        = path.join(__dirname, 'last_sent_picks.json');
 const SCRAPE_URL        = "https://nokioapp.com/in?v=1";
-const MESSAGE_DELAY     = 3000;
 
 function log(msg) {
     console.log(`[${new Date().toLocaleTimeString()}] 🌟 [PICKS-BOT] ${msg}`);
 }
-
-const PLATFORM_ICONS = {
-    'netflix': '🔴  NETFLIX', 'prime': '🔵  PRIME VIDEO', 'hotstar': '⭐  JIOHOTSTAR',
-    'jio': '⭐  JIOHOTSTAR', 'zee5': '🟣  ZEE5', 'sony': '🟠  SONY LIV',
-    'apple': '  APPLE TV+', 'youtube': '▶️  YOUTUBE', 'theatres': '🎬  IN THEATRES'
-};
 
 async function scrapePicks() {
     log(`📡 Scouting Weekly Picks...`);
@@ -32,11 +23,26 @@ async function scrapePicks() {
         const pickTitles = await page.evaluate(() => {
             const ct = document.querySelector('[class*="PickOfTheWeek_content"]');
             if (!ct) return [];
-            return Array.from(ct.children).map((item, idx) => ({
-                rank: (idx + 1).toString().padStart(2, '0'),
-                title: item.querySelector('img')?.alt || `Pick #${idx + 1}`,
-                posterUrl: item.querySelector('img') ? item.querySelector('img').src.split('?')[0] + '?h=1000' : ''
-            }));
+            return Array.from(ct.children).map((item, idx) => {
+                const img = item.querySelector('img');
+                const link = item.querySelector('a');
+                let title = img?.alt || '';
+                
+                // Fallback: Extract title from URL if Alt tag is missing (Nokio update)
+                if (!title || title.toLowerCase() === 'untitled' || title.length < 2) {
+                    const href = link?.href || '';
+                    if (href.includes('/movie/')) {
+                        const slug = href.split('/movie/')[1].split('?')[0].split('/')[0];
+                        title = slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    }
+                }
+                
+                return {
+                    rank: (idx + 1).toString().padStart(2, '0'),
+                    title: title || `Pick #${idx + 1}`,
+                    posterUrl: img ? img.src.split('?')[0] + '?h=1000' : ''
+                };
+            });
         });
         await browser.close();
         return pickTitles;
@@ -51,22 +57,39 @@ async function runPicks(client) {
 
         const picks = await scrapePicks();
         if (picks.length > 0) {
-            if (state.lastSentWeek === picks[0].title) {
-                log(`⏭️ Already sent this week's picks (${picks[0].title}). Skipping.`);
+            // Use the top pick's title as the unique key for the week
+            const currentWeekKey = picks[0].title;
+
+            if (state.lastSentWeek === currentWeekKey) {
+                log(`⏭️ Already sent this week's picks (${currentWeekKey}). Skipping.`);
             } else {
-                log(`🔥 Sending ${picks.length} weekly picks!`);
-                for (let p of picks) {
-                    let caption = `🌟  *WEEKLY PICK #${p.rank}*\n🔥  *${p.title.toUpperCase()}*\n━━━━━━━━━━━━━━━━━━━━━━\n`;
-                    if (p.posterUrl) {
-                        try {
-                            const media = await MessageMedia.fromUrl(p.posterUrl, { unsafeMime: true });
-                            await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption });
-                        } catch { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
-                    } else { await client.sendMessage(WHATSAPP_GROUP_ID, caption); }
-                    await new Promise(r => setTimeout(r, MESSAGE_DELAY));
+                log(`🔥 Sending consolidated weekly picks list!`);
+                
+                let caption = `👑  *POPCORN SCALE: TOP PICKS*  👑\n_Trending updates this week!_\n━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+                
+                picks.forEach(p => {
+                    caption += `🏆  *${p.rank}* | ${p.title.toUpperCase()}\n`;
+                });
+                
+                caption += `\n━━━━━━━━━━━━━━━━━━━━━━\n🍿 _Stay tuned for more updates!_`;
+
+                // Send the #1 Pick's poster as the header image for the list
+                const topPick = picks[0];
+                if (topPick.posterUrl) {
+                    try {
+                        const media = await MessageMedia.fromUrl(topPick.posterUrl, { unsafeMime: true });
+                        await client.sendMessage(WHATSAPP_GROUP_ID, media, { caption });
+                    } catch (err) {
+                        log(`⚠️ Media failed, sending text only: ${err.message}`);
+                        await client.sendMessage(WHATSAPP_GROUP_ID, caption);
+                    }
+                } else {
+                    await client.sendMessage(WHATSAPP_GROUP_ID, caption);
                 }
-                state.lastSentWeek = picks[0].title;
+
+                state.lastSentWeek = currentWeekKey;
                 fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+                log(`🚀 Consolidated Picks list sent!`);
             }
         } else {
             log('⏭️ No picks found to send.');
@@ -75,6 +98,5 @@ async function runPicks(client) {
         log(`❌ Picks Error: ${e.message}`);
     }
 }
-
 
 module.exports = { runPicks };
