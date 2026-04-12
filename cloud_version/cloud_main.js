@@ -9,6 +9,17 @@ function log(msg) {
     console.log(`[${new Date().toLocaleTimeString()}] 🚀 [MAIN-CONTROLLER] ${msg}`);
 }
 
+// 🛡️ [GLITCH PROTECTOR] Ignore minor cleanup errors from the library
+process.on('uncaughtException', (err) => {
+    if (err.code === 'ENOENT' && err.path && err.path.includes('.wwebjs_auth') && err.path.endsWith('.zip')) {
+        log('🏁 Ignored minor library cleanup error (Zip already removed).');
+    } else {
+        log(`❌ Uncaught Exception: ${err.message}`);
+        console.error(err);
+        process.exit(1);
+    }
+});
+
 (async () => {
     log('🎬 Starting Consolidated Popcorn Bot...');
     const { client, mongoose } = await getCloudClient();
