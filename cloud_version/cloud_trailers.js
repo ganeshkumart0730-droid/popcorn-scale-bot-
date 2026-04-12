@@ -21,98 +21,9 @@ const PLATFORM_ICONS = {
     'apple': '  APPLE TV+', 'youtube': '▶️  YOUTUBE', 'theatres': '🎬  IN THEATRES'
 };
 
-async function scrapeDetails(context, url) {
-    const page = await context.newPage();
-    try {
-        await page.goto(url, { waitUntil: 'load', timeout: 60000 });
-        await page.waitForTimeout(6000);
-        return await page.evaluate(() => {
-            const r = { language: null, genre: null, imdbRating: null, synopsis: null, platformKey: 'theatres', trailer: null };
-            const detailsDiv = document.querySelector('div[class*="MovieInfo_movie-details"]');
-            if (detailsDiv) {
-                const lines = detailsDiv.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                const langs = ['Hindi','Tamil','Telugu','Malayalam','Kannada','English','Japanese','Korean','Bengali','Marathi'];
-                const langLine = lines.find(l => l.match(/\d{4}/));
-                if (langLine) { for (const lang of langs) { if (langLine.includes(lang)) { r.language = lang; break; } } }
-                const genreLine = lines.find(l => !l.match(/\d{4}/) && l.length > 2 && l.length < 50);
-                if (genreLine) r.genre = genreLine;
-            }
-            const imdbSpan = document.querySelector('span[class*="ImdbRating_rating"]');
-            if (imdbSpan) { const m = imdbSpan.innerText.match(/(\d\.\d)/); if (m) r.imdbRating = m[1]; }
-            const tabContainer = document.querySelector('div[class*="MovieInfoTabItems_container"]');
-            if (tabContainer) {
-                const parts = tabContainer.innerText.split('\n').filter(l => l.trim().length > 0);
-                const synLine = parts.find(l => l.length > 50 && !l.includes('Synopsis') && !l.includes('Cast'));
-                if (synLine) r.synopsis = synLine.trim();
-            }
-            const iframe = document.querySelector('iframe[src*="youtube.com"]');
-            if (iframe && iframe.src.match(/\/embed\/([^?]+)/)) {
-                r.trailer = `https://www.youtube.com/watch?v=${iframe.src.match(/\/embed\/([^?]+)/)[1]}`;
-            }
-            return r;
-        });
-    } catch (e) { log(`⚠️ Scrape Error: ${e.message}`); return null; } finally { await page.close(); }
-}
-
-async function scrapeTrailers() {
-    log(`📡 Scouting New Trailers...`);
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext(devices['iPhone 12']);
-    const page    = await context.newPage();
-    try {
-        await page.goto(SCRAPE_URL, { waitUntil: 'load', timeout: 60000 });
-        await page.waitForTimeout(6000);
-        const items = await page.evaluate(() => {
-            const containers = Array.from(document.querySelectorAll('a[class*="MovieItem_container"]'));
-            return containers.slice(0, 15).map(c => {
-                const info = c.querySelector('div > div:last-child');
-                return {
-                    title: info?.querySelector('div:nth-child(1)')?.innerText.trim() || c.querySelector('img')?.alt || 'Untitled',
-                    url: c.href.split('?')[0].split('/trailers')[0].split('/reviews')[0],
-                    date: info?.querySelector('div:nth-child(3) div:first-child')?.innerText.trim() || ''
-                };
-            });
-        });
-        await browser.close();
-        return items;
-    } catch (e) { log(`❌ Scrape Crash: ${e.message}`); await browser.close(); return []; }
-}
-
 async function runTrailers(client) {
     log('🎬 Starting Trailers Task...');
     try {
-        let sentUrls = [];
-        if (fs.existsSync(STATE_FILE)) { 
-            try { 
-                sentUrls = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); 
-                if (!Array.isArray(sentUrls)) sentUrls = []; 
-            } catch { sentUrls = []; } 
-        }
-
-        // 🇮🇳 Regional Emulation to ensure correct India UI
-        const browser = await chromium.launch({ headless: true });
-        const context = await browser.newContext({
-            ...devices['iPhone 12'],
-            locale: 'en-IN',
-            timezoneId: 'Asia/Kolkata',
-            geolocation: { longitude: 77.2090, latitude: 28.6139 }, // New Delhi
-            permissions: ['geolocation']
-        });
-
-        const tempPage = await context.newPage();
-        log(`📡 Scouting for new trailers...`);
-        await tempPage.goto(SCRAPE_URL, { waitUntil: 'load', timeout: 60000 });
-        await tempPage.waitForTimeout(6000);
-
-        const items = await tempPage.evaluate(() => {
-            const list = document.querySelector('div[id*="trending-trailers"]');
-            if (!list) return [];
-            return Array.from(list.querySelectorAll('a[href*="/movie/"]')).map(c => ({
-                title: c.querySelector('img')?.alt || 'Untitled',
-                url: c.href.split('?')[0].split('/trailers')[0].split('/reviews')[0],
-            }));
-        });
-        await tempPage.close();
 
         const fresh = items.filter(i => !sentUrls.includes(i.url));
         if (fresh.length > 0) {
@@ -127,20 +38,26 @@ async function runTrailers(client) {
                     const data = await page.evaluate(() => {
                         const result = { platformKey: null, language: null, genre: null, imdbRating: null, synopsis: null, trailer: null };
                         
-                        // 1. DYNAMIC Platform Detection from Text (No Hardcoding)
+                        // 1. DYNAMIC Platform Detection & Release Date from Text
                         const bar = document.querySelector('div[class*="DetailsBar_info"]');
                         if (bar) {
                             const text = bar.innerText.toLowerCase();
                             const parts = text.split('|').map(p => p.trim());
-                            const lastPart = parts[parts.length - 1];
+                            
+                            // Extract Release Date (looks for "Released: [date]" or just a date string)
+                            const releasePart = parts.find(p => p.includes('release') || p.match(/\d{1,2}\s+[a-z]{3}\s+\d{4}/i));
+                            if (releasePart) {
+                                result.releaseDate = releasePart.replace(/released:?\s*/i, '').trim();
+                            }
 
-                            if (lastPart.includes('theater') || lastPart.includes('cinema')) result.platformKey = 'theatres';
-                            else if (lastPart.includes('netflix')) result.platformKey = 'netflix';
-                            else if (lastPart.includes('prime')) result.platformKey = 'prime';
-                            else if (lastPart.includes('hotstar') || lastPart.includes('jio')) result.platformKey = 'hotstar';
-                            else if (lastPart.includes('zee5')) result.platformKey = 'zee5';
-                            else if (lastPart.includes('sony')) result.platformKey = 'sony';
-                            else if (lastPart.includes('apple')) result.platformKey = 'apple';
+                            // Identify Platform
+                            if (text.includes('theater') || text.includes('cinema')) result.platformKey = 'theatres';
+                            else if (text.includes('netflix')) result.platformKey = 'netflix';
+                            else if (text.includes('prime')) result.platformKey = 'prime';
+                            else if (text.includes('hotstar') || text.includes('jio')) result.platformKey = 'hotstar';
+                            else if (text.includes('zee5')) result.platformKey = 'zee5';
+                            else if (text.includes('sony')) result.platformKey = 'sony';
+                            else if (text.includes('apple')) result.platformKey = 'apple';
                         }
 
                         // 2. Metadata Extraction
@@ -181,6 +98,9 @@ async function runTrailers(client) {
                         if (data.genre) meta.push(`🎭  ${data.genre}`);
                         if (data.imdbRating) meta.push(`⭐  IMDb: ${data.imdbRating}`);
                         if (meta.length > 0) caption += meta.join(' | ') + '\n';
+                        
+                        if (data.releaseDate) caption += `📅  *Release:* ${data.releaseDate}\n`;
+                        
                         if (data.synopsis) caption += `\n📝  ${data.synopsis.substring(0, 350)}...\n`;
                         caption += `\n🎥  ${data.trailer}\n━━━━━━━━━━━━━━━━━━━━━━`;
 

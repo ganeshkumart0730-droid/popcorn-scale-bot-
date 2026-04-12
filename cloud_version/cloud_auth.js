@@ -1,47 +1,38 @@
 const { Client, RemoteAuth } = require('whatsapp-web.js');
 const { MongoStore } = require('wwebjs-mongo');
 const mongoose = require('mongoose');
+const path = require('path');
+const fs = require('fs');
 
 /**
  * 🔐 Cloud Auth Manager
  * Connects to MongoDB Atlas and returns a WhatsApp Client with RemoteAuth.
  */
-async function getCloudClient(clientId) {
+async function getCloudClient(clientId = 'popcorn-stable-v1') {
     if (!process.env.MONGODB_URI) {
         throw new Error('❌ MONGODB_URI is not defined in environment variables.');
     }
 
-    console.log(`🔌 [${clientId}] Connecting to MongoDB Atlas...`);
-    try {
-        await mongoose.connect(process.env.MONGODB_URI, {
-            serverSelectionTimeoutMS: 15000, // Timeout after 15s instead of 30s
-        });
+    if (mongoose.connection.readyState === 0) {
+        console.log(`🔌 [${clientId}] Connecting to MongoDB Atlas...`);
+        await mongoose.connect(process.env.MONGODB_URI);
         console.log(`✅ [${clientId}] MongoDB Connected!`);
-    } catch (err) {
-        console.error(`❌ [${clientId}] MongoDB Connection Error:`, err.message);
-        if (err.message.includes('Server selection timed out')) {
-            console.error('👉 TIP: Check your MongoDB Atlas "Network Access" settings. You MUST add "0.0.0.0/0" (Allow from Anywhere) to let GitHub connect.');
-        }
-        process.exit(1);
     }
-    
+
     const store = new MongoStore({ 
         mongoose: mongoose,
-        collection: 'whatsapp_sessions' // Explicit collection for consistency
+        collection: 'whatsapp_sessions' 
     });
     
-    // 🧹 Purge local session folder to ensure we always pull from MongoDB Atlas in the cloud
-    const sessionPath = path.join(process.cwd(), '.wwebjs_auth');
-    if (fs.existsSync(sessionPath)) {
-        console.log(`🧹 [${clientId}] Cleaning local cache to prevent cloud conflicts...`);
-        try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch (e) {}
-    }
+    // 🛡️ [IMPORTANT] REMOVED the manual cache deletion. 
+    // We must let RemoteAuth manage the .wwebjs_auth folder so it can correctly 
+    // download and use the session from MongoDB Atlas.
 
     const client = new Client({
         authStrategy: new RemoteAuth({
             clientId: clientId, 
             store: store,
-            backupSyncIntervalMs: 60000 // Fast sync (every minute) for initial setup
+            backupSyncIntervalMs: 60000 // Fast sync (every minute)
         }),
         puppeteer: {
             headless: true,
