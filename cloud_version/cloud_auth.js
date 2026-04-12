@@ -35,41 +35,34 @@ async function restoreSession(clientId) {
             
             await pipeline(downloadStream, writeStream);
             
-            const zip = new AdmZip(zipPath);
-            const extractPath = path.join(SESSION_DIR, `session-${clientId}`);
-
-            // 🛡️ [RESTORATION FIX] Extract to SESSION_DIR so it recreates 'session-clientId'
-            if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
-            zip.extractAllTo(SESSION_DIR, true);
-            
-            // 🛡️ [DIAGNOSTIC] Verify folder structure
-            if (fs.existsSync(extractPath)) {
-                const filesInExt = fs.readdirSync(extractPath);
-                console.log(`📂 Structure in ${clientId}: [${filesInExt.slice(0, 5).join(', ')}${filesInExt.length > 5 ? '...' : ''}]`);
-
+            // 🛡️ Integrity Check: Verify zip header
+            try {
+                const zip = new AdmZip(zipPath);
+                const extractPath = path.join(SESSION_DIR, `session-${clientId}`);
+                
+                if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
+                zip.extractAllTo(SESSION_DIR, true);
+                
                 // 🛡️ [DEEP LOCK BREAKER] Remove all possible Chromium lock files
                 const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Default/SingletonLock'];
                 lockFiles.forEach(file => {
                     const fullPath = path.join(extractPath, file);
                     if (fs.existsSync(fullPath)) {
-                        try { 
-                            fs.unlinkSync(fullPath); 
-                            console.log(`🧹 Cleaned up lock: ${file}`);
-                        } catch (e) { 
-                            console.log(`⚠️ Skip lock: ${file}`); 
-                        }
+                        try { fs.unlinkSync(fullPath); } catch (e) {}
                     }
                 });
-            } else {
-                console.log(`❌ ERROR: Extraction failed. ${extractPath} not found.`);
+
+                fs.unlinkSync(zipPath);
+                console.log(`✅ [${clientId}] Session verified and extracted!`);
+                return true;
+            } catch (zipErr) {
+                console.error(`❌ [${clientId}] Session zip is corrupted: ${zipErr.message}`);
+                if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+                return false;
             }
-            
-            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-            console.log(`✅ [${clientId}] Session aligned and ready!`);
-            return true;
         }
         
-        console.log(`ℹ️ [${clientId}] No GridFS session found. QR code will be needed.`);
+        console.log(`ℹ️ [${clientId}] No GridFS session found.`);
         return false;
     } catch (err) {
         console.error(`⚠️ [${clientId}] Restore failed:`, err.message);
@@ -78,67 +71,68 @@ async function restoreSession(clientId) {
 }
 
 /**
- * 📤 [GridFS] Save session to MongoDB (Handles files > 16MB)
+ * 📤 [IRON-CLAD] Save session DIRECTLY to GridFS (No intermediate zip file)
  */
 async function saveSession(clientId) {
     if (!process.env.MONGODB_URI) return;
     
     const sourceDir = path.join(SESSION_DIR, `session-${clientId}`);
     if (!fs.existsSync(sourceDir)) {
-        console.log(`⚠️ [${clientId}] Nothing to save (folder missing).`);
+        console.log(`⚠️ [${clientId}] Nothing to save.`);
         return;
     }
 
-    const zipPath = path.join(__dirname, 'save.zip');
+    const db = mongoose.connection.db;
+    const bucket = new mongoose.mongo.GridFSBucket(db, { bucketName: BUCKET_NAME });
     const fileName = `session-${clientId}.zip`;
 
-    // 1. Zip the folder
-    await new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
-        output.on('close', resolve);
-        archive.on('error', reject);
-        archive.pipe(output);
-        
-        // 🛡️ [ZIP FIX] Keep the root folder structure intact
-        archive.directory(sourceDir, `session-${clientId}`);
-        
-        archive.finalize();
-    });
+    console.log(`📤 [${clientId}] Streaming session directly to Cloud...`);
 
-    // 2. Upload to GridFS
     try {
-        const db = mongoose.connection.db;
-        const bucket = new mongoose.mongo.GridFSBucket(db, { bucketName: BUCKET_NAME });
-        
-        // Cleanup old files
+        // 1. Cleanup old files first
         const oldFiles = await bucket.find({ filename: fileName }).toArray();
         for (const file of oldFiles) {
             await bucket.delete(file._id);
         }
 
-        console.log(`📤 [${clientId}] Uploading Golden Session to GridFS...`);
+        // 2. Setup Direct Upload Stream
         const uploadStream = bucket.openUploadStream(fileName);
-        const readStream = fs.createReadStream(zipPath);
-        
-        await pipeline(readStream, uploadStream);
-        
-        const stats = fs.statSync(zipPath);
-        console.log(`✅ [${clientId}] GridFS backup complete! Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-        
-        if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        // 3. Coordinate streams
+        const archiveFinished = new Promise((resolve, reject) => {
+            uploadStream.on('finish', resolve);
+            uploadStream.on('error', reject);
+            archive.on('error', reject);
+        });
+
+        archive.pipe(uploadStream);
+
+        // 🛡️ [ZIP CONFIG] Keep the root folder structure intact
+        // Exclude huge/unnecessary data
+        archive.directory(sourceDir, `session-${clientId}`, (file) => {
+            const ignoreList = [
+                'Cache', 'Code Cache', 'GPUCache', 'Service Worker', 'Media', 
+                'Storage/ext', '.log', '.tmp', 'crash_reporter.cfg'
+            ];
+            if (ignoreList.some(pattern => file.name.includes(pattern))) return false;
+            return file;
+        });
+
+        await archive.finalize();
+        await archiveFinished;
+
+        console.log(`✅ [${clientId}] Cloud stream confirmed! Session is safe.`);
     } catch (err) {
-        console.error(`❌ [${clientId}] GridFS Upload failed:`, err.message);
-        if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+        console.error(`❌ [${clientId}] Stream failed:`, err.message);
         throw err;
     }
 }
 
 /**
- * 🔐 Unified Client Factory (uses LocalAuth + Manual GridFS Restore)
+ * 🔐 Unified Client Factory
  */
 async function getCloudClient(clientId = 'popcorn-final-v1') {
-    // 1. Manually restore from GridFS before initialization
     await restoreSession(clientId);
 
     const client = new Client({
