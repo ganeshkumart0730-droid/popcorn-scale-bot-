@@ -41,11 +41,19 @@ async function restoreSession(clientId) {
             if (!fs.existsSync(extractPath)) fs.mkdirSync(extractPath, { recursive: true });
             zip.extractAllTo(extractPath, true);
             
-            // 🛡️ [LOCK BREAKER] Remove Chromium lock files to prevent startup errors
-            const lockPath = path.join(extractPath, 'Default', 'SingletonLock');
-            if (fs.existsSync(lockPath)) {
-                try { fs.unlinkSync(lockPath); } catch (e) { console.log('⚠️ Could not remove lock file'); }
-            }
+            // 🛡️ [DEEP LOCK BREAKER] Remove all possible Chromium lock files
+            const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Default/SingletonLock'];
+            lockFiles.forEach(file => {
+                const fullPath = path.join(extractPath, file);
+                if (fs.existsSync(fullPath)) {
+                    try { 
+                        fs.unlinkSync(fullPath); 
+                        console.log(`🧹 Cleaned up lock: ${file}`);
+                    } catch (e) { 
+                        console.log(`⚠️ Skip lock: ${file}`); 
+                    }
+                }
+            });
             
             fs.unlinkSync(zipPath);
             console.log(`✅ [${clientId}] Session extracted and ready!`);
