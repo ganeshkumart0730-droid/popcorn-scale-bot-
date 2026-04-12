@@ -37,30 +37,35 @@ async function restoreSession(clientId) {
             
             const zip = new AdmZip(zipPath);
             const extractPath = path.join(SESSION_DIR, `session-${clientId}`);
-            
-            if (!fs.existsSync(extractPath)) fs.mkdirSync(extractPath, { recursive: true });
-            zip.extractAllTo(extractPath, true);
+
+            // 🛡️ [RESTORATION FIX] Extract to SESSION_DIR so it recreates 'session-clientId'
+            if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
+            zip.extractAllTo(SESSION_DIR, true);
             
             // 🛡️ [DIAGNOSTIC] Verify folder structure
-            const filesInExt = fs.readdirSync(extractPath);
-            console.log(`📂 Structure in ${clientId}: [${filesInExt.slice(0, 5).join(', ')}${filesInExt.length > 5 ? '...' : ''}]`);
+            if (fs.existsSync(extractPath)) {
+                const filesInExt = fs.readdirSync(extractPath);
+                console.log(`📂 Structure in ${clientId}: [${filesInExt.slice(0, 5).join(', ')}${filesInExt.length > 5 ? '...' : ''}]`);
 
-            // 🛡️ [DEEP LOCK BREAKER] Remove all possible Chromium lock files
-            const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Default/SingletonLock'];
-            lockFiles.forEach(file => {
-                const fullPath = path.join(extractPath, file);
-                if (fs.existsSync(fullPath)) {
-                    try { 
-                        fs.unlinkSync(fullPath); 
-                        console.log(`🧹 Cleaned up lock: ${file}`);
-                    } catch (e) { 
-                        console.log(`⚠️ Skip lock: ${file}`); 
+                // 🛡️ [DEEP LOCK BREAKER] Remove all possible Chromium lock files
+                const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Default/SingletonLock'];
+                lockFiles.forEach(file => {
+                    const fullPath = path.join(extractPath, file);
+                    if (fs.existsSync(fullPath)) {
+                        try { 
+                            fs.unlinkSync(fullPath); 
+                            console.log(`🧹 Cleaned up lock: ${file}`);
+                        } catch (e) { 
+                            console.log(`⚠️ Skip lock: ${file}`); 
+                        }
                     }
-                }
-            });
+                });
+            } else {
+                console.log(`❌ ERROR: Extraction failed. ${extractPath} not found.`);
+            }
             
-            fs.unlinkSync(zipPath);
-            console.log(`✅ [${clientId}] Session extracted and ready!`);
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+            console.log(`✅ [${clientId}] Session aligned and ready!`);
             return true;
         }
         
@@ -95,15 +100,9 @@ async function saveSession(clientId) {
         archive.on('error', reject);
         archive.pipe(output);
         
-        // Exclude heavy/unnecessary folders
-        archive.glob('**/*', {
-            cwd: sourceDir,
-            ignore: [
-                '**/Cache/**', '**/Code Cache/**', '**/GPUCache/**',
-                '**/Service Worker/**', '**/Media/**', '**/Storage/ext/*/def/GPUCache/**',
-                '**/*.log', '**/*.tmp', '**/crash_reporter.cfg'
-            ]
-        });
+        // 🛡️ [ZIP FIX] Keep the root folder structure intact
+        archive.directory(sourceDir, `session-${clientId}`);
+        
         archive.finalize();
     });
 
@@ -118,7 +117,7 @@ async function saveSession(clientId) {
             await bucket.delete(file._id);
         }
 
-        console.log(`📤 [${clientId}] Uploading to GridFS...`);
+        console.log(`📤 [${clientId}] Uploading Golden Session to GridFS...`);
         const uploadStream = bucket.openUploadStream(fileName);
         const readStream = fs.createReadStream(zipPath);
         
