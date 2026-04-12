@@ -1,4 +1,4 @@
-const { getCloudClient, saveSession } = require('./cloud_auth');
+const { getCloudClient } = require('./cloud_auth');
 const { runTrailers } = require('./cloud_trailers');
 const { runSentinel } = require('./cloud_sentinel');
 const { runWeekly } = require('./cloud_weekly');
@@ -11,29 +11,32 @@ function log(msg) {
     console.log(`[${new Date().toLocaleTimeString()}] 🚀 [MAIN-CONTROLLER] ${msg}`);
 }
 
-// 🛡️ [GLITCH PROTECTOR] Ignore minor cleanup errors
+// 🛡️ [GLITCH PROTECTOR] Ignore minor Chromium cleanup errors on shutdown
 process.on('uncaughtException', (err) => {
-    if (err.code === 'ENOENT' && err.path && err.path.includes('.wwebjs_auth') && err.path.endsWith('.zip')) {
-        log('🏁 Ignored minor library cleanup error.');
-    } else {
-        log(`❌ Uncaught Exception: ${err.message}`);
-        process.exit(1);
+    if (err.code === 'ENOENT') {
+        // Suppress harmless file-not-found errors during browser cleanup
+        return;
     }
+    log(`❌ Uncaught Exception: ${err.message}`);
+    process.exit(1);
 });
 
 (async () => {
-    log('🎬 Starting Consolidated Popcorn Bot (Manual Mode)...');
+    log('🎬 Starting Popcorn Bot (RemoteAuth Mode)...');
     
-    // getCloudClient now handles the "Download and Extract" automatically
     const { client, mongoose } = await getCloudClient(CLIENT_ID);
 
     client.on('qr', (qr) => {
-        log('📲 SCAN THIS QR CODE (MANUAL PERSISTENCE ENABLED):');
+        log('📲 SCAN THIS QR CODE (Session will be saved to cloud automatically):');
         qrcode.generate(qr, { small: true });
     });
 
+    client.on('remote_session_saved', () => {
+        log('💾 Session successfully synced to MongoDB!');
+    });
+
     client.on('authenticated', () => {
-        log('🛡️  AUTHENTICATED! Session files restored successfully.');
+        log('🛡️  AUTHENTICATED! Session is active.');
     });
 
     client.on('auth_failure', (msg) => {
@@ -51,12 +54,12 @@ process.on('uncaughtException', (err) => {
             await runSentinel(client);
             await new Promise(r => setTimeout(r, 5000));
             
-            // 2. Weekly Releases & Picks
+            // 2. Weekly Releases & Picks (Monday or Manual trigger)
             const isMonday = new Date().getDay() === 1;
             const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
 
             if (isMonday || isManual) {
-                log('🗓️ Run detected! Executing weekly tasks...');
+                log('🗓️ Weekly run detected! Executing Weekly + Picks tasks...');
                 await runWeekly(client);
                 await new Promise(r => setTimeout(r, 5000));
                 await runPicks(client);
@@ -64,17 +67,13 @@ process.on('uncaughtException', (err) => {
             
             log('🎉 ALL TASKS COMPLETED SUCCESSFULLY!');
         } catch (e) {
-            log(`❌ Fatal Error during task execution: ${e.message}`);
+            log(`❌ Task Error: ${e.message}`);
         }
 
-        // 🛡️ [MANUAL BACKUP] Force a zip and upload of the updated session
-        log('📤 Backing up session files to MongoDB Atlas...');
-        try {
-            await saveSession(CLIENT_ID);
-            log('✅ CLOUD BACKUP COMPLETE. Future runs will be autonomous.');
-        } catch (err) {
-            log(`❌ Cloud Backup Failed: ${err.message}`);
-        }
+        // RemoteAuth handles session saving automatically.
+        // Give it a moment to complete the final background sync.
+        log('⏳ Waiting for final session sync...');
+        await new Promise(r => setTimeout(r, 15000));
 
         log('🏁 Shutting down...');
         await client.destroy();

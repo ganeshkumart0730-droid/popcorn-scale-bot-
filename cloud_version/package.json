@@ -1,20 +1,18 @@
 {
   "name": "popcorn-scale-cloud",
   "version": "1.0.0",
-  "description": "Cloud-based WhatsApp bot with Manual Session Rescue",
+  "description": "Cloud-based WhatsApp bot with Official MongoDB RemoteAuth",
   "main": "cloud_main.js",
   "dependencies": {
+    "@wwebjs/mongo": "^4.0.0",
     "axios": "^1.15.0",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "mime-types": "^3.0.2",
-    "mongodb": "^6.3.0",
     "mongoose": "^8.1.1",
     "node-cron": "^4.2.1",
     "playwright-chromium": "^1.43.1",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.34.6",
-    "adm-zip": "^0.5.12",
-    "archiver": "^7.0.1"
+    "whatsapp-web.js": "^1.34.6"
   }
 }
