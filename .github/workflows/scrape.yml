@@ -1,4 +1,4 @@
-name: Popcorn Scale Automations (Cloud)
+name: "[STABLE] Popcorn Bot Unified"
 
 on:
   schedule:
@@ -13,7 +13,8 @@ permissions:
   contents: write
 
 jobs:
-  run-bots:
+  unified-execution:
+    name: Unified Execution
     runs-on: ubuntu-latest
 
     steps:

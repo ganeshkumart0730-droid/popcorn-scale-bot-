@@ -42,22 +42,24 @@ async function runTrailers(client) {
                         const bar = document.querySelector('div[class*="DetailsBar_info"]');
                         if (bar) {
                             const text = bar.innerText.toLowerCase();
+                            console.log(`DEBUG [META]: ${text}`); // 🔍 Secret debug log for Antigravity
+
                             const parts = text.split('|').map(p => p.trim());
                             
-                            // Extract Release Date (looks for "Released: [date]" or just a date string)
+                            // Extract Release Date
                             const releasePart = parts.find(p => p.includes('release') || p.match(/\d{1,2}\s+[a-z]{3}\s+\d{4}/i));
                             if (releasePart) {
                                 result.releaseDate = releasePart.replace(/released:?\s*/i, '').trim();
                             }
 
-                            // Identify Platform
-                            if (text.includes('theater') || text.includes('cinema')) result.platformKey = 'theatres';
-                            else if (text.includes('netflix')) result.platformKey = 'netflix';
+                            // Identify Platform (STREAMING TAKES PRIORITY OVER THEATRES)
+                            if (text.includes('netflix')) result.platformKey = 'netflix';
                             else if (text.includes('prime')) result.platformKey = 'prime';
                             else if (text.includes('hotstar') || text.includes('jio')) result.platformKey = 'hotstar';
                             else if (text.includes('zee5')) result.platformKey = 'zee5';
                             else if (text.includes('sony')) result.platformKey = 'sony';
                             else if (text.includes('apple')) result.platformKey = 'apple';
+                            else if (text.includes('theater') || text.includes('cinema')) result.platformKey = 'theatres';
                         }
 
                         // 2. Metadata Extraction
